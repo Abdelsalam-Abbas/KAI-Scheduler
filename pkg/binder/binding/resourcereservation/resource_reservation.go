@@ -581,7 +581,7 @@ func (rsc *service) waitForGPUReservationPodAllocation(
 
 func (rsc *service) createResourceReservationPod(
 	sourcePod *v1.Pod, nodeName string, fractionalGpuGroup schedulingv1alpha2.FractionalGpuGroup,
-	podName string, resources v1.ResourceRequirements,
+	podName string, containerResources v1.ResourceRequirements,
 ) (*v1.Pod, error) {
 	fractionalGpuGroup = fractionalGpuGroup.WithDefaults()
 	var tolerations []v1.Toleration
@@ -598,8 +598,8 @@ func (rsc *service) createResourceReservationPod(
 				constants.GPUGroup:     fractionalGpuGroup.ID,
 			},
 			Annotations: map[string]string{
-				karpenterv1.DoNotDisruptAnnotationKey: "true",
-				constants.GpuComputeSharingMode:       string(fractionalGpuGroup.ComputeSharingMode),
+				karpenterv1.DoNotDisruptAnnotationKey:                                          "true",
+				resources.CalcGpuComputeSharingModeAnnotationForContainer(resourceReservation): string(fractionalGpuGroup.ComputeSharingMode),
 			},
 		},
 		Spec: v1.PodSpec{
@@ -618,7 +618,7 @@ func (rsc *service) createResourceReservationPod(
 					Name:            resourceReservation,
 					Image:           rsc.reservationPodImage,
 					ImagePullPolicy: v1.PullIfNotPresent,
-					Resources:       resources,
+					Resources:       containerResources,
 					SecurityContext: rsc.reservationContainerSecurityContext,
 					Env: []v1.EnvVar{
 						{

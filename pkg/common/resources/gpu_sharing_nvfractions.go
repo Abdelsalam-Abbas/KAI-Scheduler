@@ -10,6 +10,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	schedulingv1alpha2 "github.com/kai-scheduler/KAI-scheduler/pkg/apis/scheduling/v1alpha2"
 	"github.com/kai-scheduler/KAI-scheduler/pkg/common/constants"
 )
 
@@ -19,6 +20,7 @@ const (
 	nvFractionsRequestAnnotation nvFractionsAnnotationType = iota
 	nvFractionsLimitAnnotation
 	nvFractionsDevicesAnnotation
+	nvFractionsComputeModeAnnotation
 )
 
 func CalcGpuFractionAnnotationForContainer(containerName string) string {
@@ -39,6 +41,9 @@ func ExtractNvFractionsData(pod *v1.Pod) (map[string]NvFractionsContainerRequest
 		if !strings.HasPrefix(annotationKey, constants.NvFractionsAnnotationPrefix) {
 			continue
 		}
+		if isNvFractionsDeviceListAnnotation(annotationKey) {
+			continue
+		}
 
 		containerName, annotationType, err := parseNvFractionsAnnotationKey(annotationKey)
 		if err != nil {
@@ -46,6 +51,15 @@ func ExtractNvFractionsData(pod *v1.Pod) (map[string]NvFractionsContainerRequest
 		}
 
 		containerData := fractionsData[containerName]
+		if annotationType == nvFractionsComputeModeAnnotation {
+			if !IsValidGPUComputeSharingMode(annotationValue) {
+				return nil, fmt.Errorf("invalid NvFractions compute mode: %s", annotationValue)
+			}
+			mode := schedulingv1alpha2.GPUComputeSharingMode(annotationValue)
+			containerData.ComputeMode = &mode
+			fractionsData[containerName] = containerData
+			continue
+		}
 		switch annotationType {
 		case nvFractionsRequestAnnotation:
 			gpuMemory, err := parseNvFractionsAnnotationValue(annotationKey, annotationValue)
@@ -80,6 +94,15 @@ func getNvFractionData(pod *v1.Pod) (*NvFractionsContainerRequest, error) {
 	return nil, nil
 }
 
+// isNvFractionsDeviceListAnnotation reports whether annotationKey is the
+// device-list annotation. It shares the NvFractions prefix but, unlike
+// request/limit/compute-mode, isn't part of the customer's fractional GPU
+// request - it's written by the binder after scheduling - so it must be
+// skipped here rather than treated as an invalid key.
+func isNvFractionsDeviceListAnnotation(annotationKey string) bool {
+	return strings.HasSuffix(annotationKey, constants.NvFractionsVisibleDevicesSuffix)
+}
+
 func parseNvFractionsAnnotationKey(annotationKey string) (string, nvFractionsAnnotationType, error) {
 	containerNameWithSuffix := strings.TrimPrefix(annotationKey, constants.NvFractionsAnnotationPrefix)
 	if strings.HasSuffix(annotationKey, constants.NvFractionsMemoryRequestSuffix) {
@@ -102,6 +125,13 @@ func parseNvFractionsAnnotationKey(annotationKey string) (string, nvFractionsAnn
 			return "", 0, fmt.Errorf("invalid NvFractions annotation key: %s", annotationKey)
 		}
 		return containerName, nvFractionsDevicesAnnotation, nil
+	}
+	if strings.HasSuffix(annotationKey, constants.GpuComputeSharingModeSuffix) {
+		containerName := strings.TrimSuffix(containerNameWithSuffix, constants.GpuComputeSharingModeSuffix)
+		if containerName == "" {
+			return "", 0, fmt.Errorf("invalid NvFractions annotation key: %s", annotationKey)
+		}
+		return containerName, nvFractionsComputeModeAnnotation, nil
 	}
 	return "", 0, fmt.Errorf("invalid NvFractions annotation key: %s", annotationKey)
 }
