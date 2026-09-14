@@ -62,6 +62,7 @@ type proportionPlugin struct {
 	relcaimerSaturationMultiplier float64
 	kValue                        float64
 	minNodeGPUMemory              *int64
+	queuePriorityInQuotaReclaim   bool
 }
 
 func New(arguments framework.PluginArguments) framework.Plugin {
@@ -83,12 +84,18 @@ func New(arguments framework.PluginArguments) framework.Plugin {
 		kValue = 0.0
 	}
 
+	queuePriorityInQuotaReclaim, err := arguments.GetBool("queuePriorityInQuotaReclaim", false)
+	if err != nil {
+		log.InfraLogger.Warningf("Failed to parse queuePriorityInQuotaReclaim: %v. Using default value of false", err)
+	}
+
 	return &proportionPlugin{
 		totalResource:                 rs.EmptyResourceQuantities(),
 		queues:                        map[common_info.QueueID]*rs.QueueAttributes{},
 		pluginArguments:               arguments,
 		relcaimerSaturationMultiplier: multiplier,
 		kValue:                        kValue,
+		queuePriorityInQuotaReclaim:   queuePriorityInQuotaReclaim,
 	}
 }
 
@@ -101,7 +108,7 @@ func (pp *proportionPlugin) OnSessionOpen(ssn *framework.Session) {
 	pp.subGroupOrderFn = ssn.SubGroupOrderFn
 	pp.taskOrderFunc = ssn.TaskOrderFn
 	pp.minNodeGPUMemory = ssn.ClusterInfo.MinNodeGPUMemoryMiB
-	pp.reclaimablePlugin = rec.New(pp.relcaimerSaturationMultiplier)
+	pp.reclaimablePlugin = rec.New(pp.relcaimerSaturationMultiplier, pp.queuePriorityInQuotaReclaim)
 	capacityPolicy := cp.New(pp.queues, ssn.ClusterInfo.MaxNodeGPUMemoryMiB)
 	ssn.AddQueueOrderFn(pp.queueOrder)
 	ssn.AddCanReclaimResourcesFn(pp.CanReclaimResourcesFn)
@@ -137,21 +144,23 @@ func (pp *proportionPlugin) OnJobSolutionStartFn() {
 }
 
 func (pp *proportionPlugin) CanReclaimResourcesFn(reclaimer *podgroup_info.PodGroupInfo) bool {
-	reclaimerInfo := pp.buildReclaimerInfo(reclaimer, pp.minNodeGPUMemory)
+	reclaimerInfo := pp.buildReclaimerInfo(reclaimer, pp.minNodeGPUMemory, podgroup_info.PartialTaskAllocation)
 	return pp.reclaimablePlugin.CanReclaimResources(pp.queues, &reclaimerInfo)
 }
 
 func (pp *proportionPlugin) reclaimVictimFilterFn(
 	reclaimer *podgroup_info.PodGroupInfo, victim *podgroup_info.PodGroupInfo,
 ) bool {
-	reclaimerInfo := pp.buildReclaimerInfo(reclaimer, pp.minNodeGPUMemory)
+	reclaimerInfo := pp.buildReclaimerInfo(reclaimer, pp.minNodeGPUMemory, podgroup_info.PartialTaskAllocation)
 	return pp.reclaimablePlugin.FilterVictim(pp.queues, &reclaimerInfo, victim.Queue)
 }
 
 func (pp *proportionPlugin) reclaimableFn(
 	scenario api.ScenarioInfo,
 ) bool {
-	reclaimerInfo := pp.buildReclaimerInfo(scenario.GetPreemptor(), pp.minNodeGPUMemory)
+	reclaimerInfo := pp.buildReclaimerInfo(
+		scenario.GetPreemptor(), pp.minNodeGPUMemory, podgroup_info.PartialTaskAllocation,
+	)
 	totalVictimsResources := make(map[common_info.QueueID][]resource_info.ResourceVector)
 	victims := scenario.GetVictims()
 	for _, victim := range victims {
@@ -303,14 +312,16 @@ func (pp *proportionPlugin) createQueueAttributes(ssn *framework.Session) {
 	pp.setFairShare()
 }
 
-func (pp *proportionPlugin) buildReclaimerInfo(reclaimer *podgroup_info.PodGroupInfo, minNodeGPUMemory *int64) rec.ReclaimerInfo {
+func (pp *proportionPlugin) buildReclaimerInfo(
+	reclaimer *podgroup_info.PodGroupInfo, minNodeGPUMemory *int64, allocationMode podgroup_info.TaskAllocationMode,
+) rec.ReclaimerInfo {
 	return rec.ReclaimerInfo{
 		Name:          reclaimer.Name,
 		Namespace:     reclaimer.Namespace,
 		Queue:         reclaimer.Queue,
 		IsPreemptable: reclaimer.IsPreemptibleJob(),
 		RequiredResources: podgroup_info.GetTasksToAllocateInitResourceVector(reclaimer, pp.subGroupOrderFn, pp.taskOrderFunc,
-			false, minNodeGPUMemory),
+			allocationMode, minNodeGPUMemory),
 		VectorMap: reclaimer.VectorMap,
 	}
 }
@@ -514,7 +525,7 @@ func (pp *proportionPlugin) queueOrder(lQ, rQ *queue_info.QueueInfo, lJob, rJob 
 	}
 
 	return queue_order.GetQueueOrderResult(lQueueAttributes, rQueueAttributes, lJob, rJob, lVictims, rVictims,
-		pp.subGroupOrderFn, pp.taskOrderFunc, pp.totalResource, minNodeGPUMemory)
+		pp.subGroupOrderFn, pp.taskOrderFunc, pp.totalResource, minNodeGPUMemory, pp.queuePriorityInQuotaReclaim)
 }
 
 func (pp *proportionPlugin) getQueueDeservedResourcesFn(queue *queue_info.QueueInfo) *resource_info.ResourceRequirements {

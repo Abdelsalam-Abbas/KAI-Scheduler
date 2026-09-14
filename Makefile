@@ -139,6 +139,11 @@ changelog-preview: changie ## Preview the next release section without writing a
 	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make changelog-preview VERSION=v0.17.0"; exit 1; }
 	$(CHANGIE) batch $(VERSION) --dry-run
 
+.PHONY: images-manifest
+images-manifest: ## Generate images.yaml for a release. Usage: make images-manifest VERSION=v0.17.0 DOCKER_REPO_BASE=ghcr.io/kai-scheduler/kai-scheduler
+	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make images-manifest VERSION=v0.17.0"; exit 1; }
+	bash hack/generate-images-manifest.sh "$(VERSION)" "$(DOCKER_REPO_BASE)" "$(SERVICE_NAMES) crd-upgrader" > images.yaml
+
 
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
@@ -154,7 +159,7 @@ BENCH_OUTPUT ?= benchmark-results.txt
 # because some reclaim benchmarks require -benchtime=1x and only a curated subset
 # should run in CI.
 BENCH_SPECIAL_PACKAGES := ./pkg/scheduler/actions/reclaim
-BENCH_SPECIAL_REGEX := '^BenchmarkReclaim(WithMissingPVCJobs|UnschedulableDistributedJob_(10|50|100)Node)$$'
+BENCH_SPECIAL_REGEX := '^BenchmarkReclaim(WithMissingPVCJobs|UnschedulableDistributedJob_((10|50|100)Node|AntiAffinity100Node))$$'
 
 .PHONY: benchstat
 benchstat: $(BENCHSTAT)
