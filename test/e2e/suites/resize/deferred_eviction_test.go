@@ -44,7 +44,6 @@ var _ = Describe("Deferred resize eviction", Ordered, func() {
 				PodCount: 2,
 			},
 		)
-		Expect(feature_flags.SetResizeEvictionAction(ctx, testCtx, true)).To(Succeed())
 	})
 
 	AfterAll(func(ctx context.Context) {
@@ -89,13 +88,18 @@ var _ = Describe("Deferred resize eviction", Ordered, func() {
 		target := fmt.Sprintf("%dm", targetCPU)
 		Expect(resizeCPU(ctx, testCtx, resizer, target)).To(Succeed())
 
+		// The resizeeviction action is still disabled here, so the Deferred condition is
+		// stable: enabling it earlier lets deferred->evict->enact complete between polls.
 		By("waiting for the kubelet to mark the resize Deferred")
 		Eventually(func(g Gomega) {
 			current := &v1.Pod{}
 			g.Expect(testCtx.ControllerClient.Get(ctx,
 				types.NamespacedName{Namespace: resizer.Namespace, Name: resizer.Name}, current)).To(Succeed())
-			g.Expect(isResizeDeferred(current)).To(BeTrue())
+			g.Expect(isResizeDeferred(current)).To(BeTrue(), "pod conditions: %+v", current.Status.Conditions)
 		}).WithContext(ctx).WithTimeout(resizeTimeout).WithPolling(resizePoll).Should(Succeed())
+
+		By("enabling the resizeeviction action")
+		Expect(feature_flags.SetResizeEvictionAction(ctx, testCtx, true)).To(Succeed())
 
 		By("waiting for the scheduler to evict the victim")
 		Eventually(func(g Gomega) {
