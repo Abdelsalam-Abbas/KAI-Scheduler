@@ -119,7 +119,7 @@ func NewWithScheme(mgrScheme *runtime.Scheme) (*App, error) {
 	}
 
 	defaultPluginsHub := pluginshub.NewDefaultPluginsHub(mgr.GetClient(), configs.SearchForLegacyPodGroups,
-		configs.KnativeGangSchedule, configs.GenericKartaFallback, configs.SchedulingQueueLabelKey, configs.NodePoolLabelKey,
+		configs.KnativeGangSchedule, configs.DeploymentGangSchedule, configs.GenericKartaFallback, configs.SchedulingQueueLabelKey, configs.NodePoolLabelKey,
 		configs.DefaultConfigPerTypeConfigMapName, configs.DefaultConfigPerTypeConfigMapNamespace)
 
 	app := &App{
@@ -134,7 +134,6 @@ func (app *App) RegisterPlugins(pluginsHub pluginshub.PluginsHub) {
 	app.pluginsHub = pluginsHub
 }
 
-// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 
 func (app *App) Run() error {

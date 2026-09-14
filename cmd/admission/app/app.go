@@ -35,7 +35,6 @@ import (
 
 	admissionplugins "github.com/kai-scheduler/KAI-scheduler/pkg/admission/plugins"
 	"github.com/kai-scheduler/KAI-scheduler/pkg/admission/webhook/topologyhooks"
-	"github.com/kai-scheduler/KAI-scheduler/pkg/binder/controllers"
 )
 
 var (
@@ -58,7 +57,6 @@ type App struct {
 	InformerFactory  informers.SharedInformerFactory
 	Options          *Options
 	manager          manager.Manager
-	reconcilerParams *controllers.ReconcilerParams
 	admissionPlugins *admissionplugins.KaiAdmissionPlugins
 }
 
@@ -125,18 +123,12 @@ func New() (*App, error) {
 	kubeClient := kubernetes.NewForConfigOrDie(config)
 	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
 
-	reconcilerParams := &controllers.ReconcilerParams{
-		RateLimiterBaseDelaySeconds: options.RateLimiterBaseDelaySeconds,
-		RateLimiterMaxDelaySeconds:  options.RateLimiterMaxDelaySeconds,
-	}
-
 	app := &App{
-		K8sInterface:     kubeClient,
-		Client:           clientWithWatch,
-		InformerFactory:  informerFactory,
-		Options:          options,
-		manager:          mgr,
-		reconcilerParams: reconcilerParams,
+		K8sInterface:    kubeClient,
+		Client:          clientWithWatch,
+		InformerFactory: informerFactory,
+		Options:         options,
+		manager:         mgr,
 	}
 	return app, nil
 }
@@ -145,7 +137,6 @@ func (app *App) RegisterPlugins(admissionPlugins *admissionplugins.KaiAdmissionP
 	app.admissionPlugins = admissionPlugins
 }
 
-// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch;update
 // +kubebuilder:rbac:groups="scheduling.run.ai",resources=podgroups,verbs=get;list;watch
@@ -167,8 +158,7 @@ func (app *App) Run() error {
 		return err
 	}
 
-	// The canonical /validate--v1-pod path is taken by the pod validator above,
-	// so the resize endpoint registers under an explicit custom path.
+	// Add a new webhook for the resize subresource with Ignore failPolicy
 	if err = ctrl.NewWebhookManagedBy(app.manager, &corev1.Pod{}).
 		WithValidator(admissionhooks.NewPodResizeValidator(
 			app.manager.GetClient(),

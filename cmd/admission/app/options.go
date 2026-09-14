@@ -16,8 +16,6 @@ type Options struct {
 	SchedulerName               string
 	QPS                         float64
 	Burst                       int
-	RateLimiterBaseDelaySeconds int
-	RateLimiterMaxDelaySeconds  int
 	EnableLeaderElection        bool
 	MetricsAddr                 string
 	ProbeAddr                   string
@@ -59,12 +57,6 @@ func InitOptions() *Options {
 	fs.IntVar(&options.Burst,
 		"burst", 300,
 		"Burst to the K8s API server")
-	fs.IntVar(&options.RateLimiterBaseDelaySeconds,
-		"rate-limiter-base-delay", 1,
-		"Base delay in seconds for the ExponentialFailureRateLimiter")
-	fs.IntVar(&options.RateLimiterMaxDelaySeconds,
-		"rate-limiter-max-delay", 60,
-		"Max delay in seconds for the ExponentialFailureRateLimiter")
 	fs.BoolVar(&options.EnableLeaderElection,
 		"leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -103,14 +95,13 @@ func InitOptions() *Options {
 			constants.DefaultRuntimeClassName))
 	fs.BoolVar(&options.ValidatePodResizeQuota,
 		"validate-pod-resize-quota", true,
-		"Enable best-effort hierarchical queue quota checks on pods/resize requests. "+
-			"When false, the webhook admits all resizes without checking queue limits or quota, "+
-			"and --block-upsize-on-bounded-queues is ignored.")
+		"Enable queue limit/quota checks on pod resize requests. "+
+			"Best-effort: if lookups fail, resize is admitted. "+
+			"Ignored if false, disables --block-upsize-on-bounded-queues.")
 	fs.BoolVar(&options.BlockUpsizeOnBoundedQueues,
 		"block-upsize-on-bounded-queues", false,
-		"Reject any upsize on a queue (or ancestor) with a finite CPU or memory limit, "+
-			"regardless of current allocation. Prevents concurrent-resize races from exceeding hard limits. "+
-			"Has no effect when --validate-pod-resize-quota is false.")
+		"Block pod upsize if queue or ancestor has a CPU/memory limit. "+
+			"No effect if --validate-pod-resize-quota is false.")
 
 	utilfeature.DefaultMutableFeatureGate.AddFlag(fs)
 
