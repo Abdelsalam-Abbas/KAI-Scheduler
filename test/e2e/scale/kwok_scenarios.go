@@ -21,6 +21,7 @@ import (
 	schedulerconfig "github.com/kai-scheduler/KAI-scheduler/test/e2e/modules/configurations"
 	testcontext "github.com/kai-scheduler/KAI-scheduler/test/e2e/modules/context"
 	"github.com/kai-scheduler/KAI-scheduler/test/e2e/modules/resources/rd"
+	"github.com/kai-scheduler/KAI-scheduler/test/e2e/modules/resources/rd/pod_group"
 	"github.com/kai-scheduler/KAI-scheduler/test/e2e/modules/resources/rd/queue"
 	"github.com/kai-scheduler/KAI-scheduler/test/e2e/modules/utils"
 	waitutils "github.com/kai-scheduler/KAI-scheduler/test/e2e/modules/wait"
@@ -184,14 +185,10 @@ func elasticJobReclaim(
 	victimPods := numberOfNodes / elasticVictimJobs
 	victimMinMember := victimPods / 2
 
-	var victims []*rd.JobResult
+	var victims [][]*v1.Pod
 	for range elasticVictimJobs {
-		victim, err := createDistributedJobForKwok(ctx, testCtx, victimQueue, rd.DistributedBatchJobOptions{
-			Parallelism: ptr.To(int32(victimPods)),
-			MinMember:   ptr.To(int32(victimMinMember)),
-			Resources:   FullNodeGPURequirement,
-			NamePrefix:  "elastic-victim-",
-		})
+		victim, err := createElasticPodGroupForKwok(
+			ctx, testCtx, victimQueue, victimPods, victimMinMember)
 		Expect(err).NotTo(HaveOccurred())
 		victims = append(victims, victim)
 	}
@@ -215,7 +212,7 @@ func elasticJobReclaim(
 	victimNamespace := queue.GetConnectedNamespaceToQueue(victimQueue)
 	for _, victim := range victims {
 		waitutils.ForAtLeastNPodsScheduled(
-			ctx, testCtx.ControllerClient, victimNamespace, victim.Pods, victimMinMember)
+			ctx, testCtx.ControllerClient, victimNamespace, victim, victimMinMember)
 	}
 
 	Expect(writeTestResults("Reclaim from elastic distributed jobs", true,
@@ -227,6 +224,45 @@ func elasticJobReclaim(
 			"reclaimer pods":            reclaimerPods,
 			"time to reclaim (seconds)": endTime.Sub(startTime).Seconds(),
 		})).To(Succeed())
+}
+
+func createElasticPodGroupForKwok(
+	ctx context.Context, testCtx *testcontext.TestContext, victimQueue *v2.Queue,
+	podCount, minMember int,
+) ([]*v1.Pod, error) {
+	namespace := queue.GetConnectedNamespaceToQueue(victimQueue)
+	podGroupName := "elastic-victim-" + utils.GenerateRandomK8sName(10)
+	podGroup := pod_group.Create(namespace, podGroupName, victimQueue.Name)
+	podGroup.Spec.MinMember = ptr.To(int32(minMember))
+	if err := rd.CreateObjectWithRetries(ctx, testCtx.ControllerClient, podGroup); err != nil {
+		return nil, err
+	}
+
+	pods := make([]*v1.Pod, 0, podCount)
+	var wg sync.WaitGroup
+	var lock sync.Mutex
+	var creationError error
+	for range podCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			pod := rd.CreatePodWithPodGroupReference(victimQueue, podGroupName, FullNodeGPURequirement)
+			addKWOKTaintsAndAffinity(&pod.Spec)
+			err := rd.CreateObjectWithRetries(ctx, testCtx.ControllerClient, pod)
+
+			lock.Lock()
+			defer lock.Unlock()
+			if err != nil {
+				creationError = errors.Join(creationError, err)
+				return
+			}
+			pods = append(pods, pod)
+		}()
+	}
+	wg.Wait()
+
+	return pods, creationError
 }
 
 // heroJobReclaim reclaims a full topology domain for one huge job with a required topology constraint.
