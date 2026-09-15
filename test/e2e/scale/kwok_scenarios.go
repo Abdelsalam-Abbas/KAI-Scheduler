@@ -41,7 +41,8 @@ const (
 	inferencePodsPerDeployment  = inferencePrefillPods + inferenceDecodePods + inferenceFrontendPods
 
 	// Elastic victims shrink to half their pods instead of being evicted entirely.
-	elasticVictimJobs = 2
+	elasticVictimJobs                 = 2
+	elasticReclaimVerificationTimeout = 5 * time.Minute
 
 	// Each mixed-workload queue runs an RL gang worth ~5% of the cluster.
 	mixedWorkloadQueues       = 5
@@ -185,15 +186,17 @@ func elasticJobReclaim(
 	victimPods := numberOfNodes / elasticVictimJobs
 	victimMinMember := victimPods / 2
 
-	var victims [][]*v1.Pod
+	victims := make([]elasticVictim, 0, elasticVictimJobs)
+	allVictimPods := make([]*v1.Pod, 0, elasticVictimJobs*victimPods)
 	for range elasticVictimJobs {
 		victim, err := createElasticPodGroupForKwok(
 			ctx, testCtx, victimQueue, victimPods, victimMinMember)
 		Expect(err).NotTo(HaveOccurred())
 		victims = append(victims, victim)
+		allVictimPods = append(allVictimPods, victim.pods...)
 	}
-	waitutils.ForPodCountInNamespace(ctx, testCtx.ControllerClient, victimQueue,
-		elasticVictimJobs*victimPods, maxFlowTimeoutMinutes*time.Minute)
+	victimNamespace := queue.GetConnectedNamespaceToQueue(victimQueue)
+	waitutils.ForPodsScheduled(ctx, testCtx.ControllerClient, victimNamespace, allVictimPods)
 
 	reclaimerPods := numberOfNodes / 2
 	batchLabels := map[string]string{distributedJobBatchLabel: utils.GenerateRandomK8sName(10)}
@@ -209,11 +212,8 @@ func elasticJobReclaim(
 	Expect(err).NotTo(HaveOccurred())
 	endTime := waitForBatchToSchedule(ctx, testCtx, reclaimQueue, batchLabels, reclaimerPods)
 
-	victimNamespace := queue.GetConnectedNamespaceToQueue(victimQueue)
-	for _, victim := range victims {
-		waitutils.ForAtLeastNPodsScheduled(
-			ctx, testCtx.ControllerClient, victimNamespace, victim, victimMinMember)
-	}
+	expectedScheduledVictims := min(len(allVictimPods), numberOfNodes-reclaimerPods)
+	waitForElasticVictimState(ctx, testCtx, victimNamespace, victims, victimMinMember, expectedScheduledVictims)
 
 	Expect(writeTestResults("Reclaim from elastic distributed jobs", true,
 		map[string]interface{}{
@@ -226,16 +226,52 @@ func elasticJobReclaim(
 		})).To(Succeed())
 }
 
+type elasticVictim struct {
+	podGroupName string
+	pods         []*v1.Pod
+}
+
+func waitForElasticVictimState(
+	ctx context.Context, testCtx *testcontext.TestContext, namespace string,
+	victims []elasticVictim, minMember, expectedScheduledPods int,
+) {
+	Eventually(func(g Gomega) {
+		totalScheduledPods := 0
+		for _, victim := range victims {
+			pods := &v1.PodList{}
+			g.Expect(testCtx.ControllerClient.List(
+				ctx,
+				pods,
+				runtimeClient.InNamespace(namespace),
+				runtimeClient.MatchingLabels{pod_group.PodGroupNameAnnotation: victim.podGroupName},
+			)).To(Succeed())
+
+			scheduledPods := 0
+			for i := range pods.Items {
+				if rd.IsPodScheduled(&pods.Items[i]) {
+					scheduledPods++
+				}
+			}
+			g.Expect(scheduledPods).To(BeNumerically(">=", minMember),
+				"pod group %s fell below minMember", victim.podGroupName)
+			totalScheduledPods += scheduledPods
+		}
+
+		g.Expect(totalScheduledPods).To(Equal(expectedScheduledPods),
+			"unexpected number of scheduled victim pods after reclaim")
+	}, elasticReclaimVerificationTimeout, podsPollIntervalSeconds*time.Second).Should(Succeed())
+}
+
 func createElasticPodGroupForKwok(
 	ctx context.Context, testCtx *testcontext.TestContext, victimQueue *v2.Queue,
 	podCount, minMember int,
-) ([]*v1.Pod, error) {
+) (elasticVictim, error) {
 	namespace := queue.GetConnectedNamespaceToQueue(victimQueue)
 	podGroupName := "elastic-victim-" + utils.GenerateRandomK8sName(10)
 	podGroup := pod_group.Create(namespace, podGroupName, victimQueue.Name)
 	podGroup.Spec.MinMember = ptr.To(int32(minMember))
 	if err := rd.CreateObjectWithRetries(ctx, testCtx.ControllerClient, podGroup); err != nil {
-		return nil, err
+		return elasticVictim{}, err
 	}
 
 	pods := make([]*v1.Pod, 0, podCount)
@@ -262,7 +298,7 @@ func createElasticPodGroupForKwok(
 	}
 	wg.Wait()
 
-	return pods, creationError
+	return elasticVictim{podGroupName: podGroupName, pods: pods}, creationError
 }
 
 // heroJobReclaim reclaims a full topology domain for one huge job with a required topology constraint.
