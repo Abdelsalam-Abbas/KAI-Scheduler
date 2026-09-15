@@ -217,14 +217,17 @@ var _ = Describe("Kwok scale test", Ordered, Label(labels.Scale), func() {
 				To(Succeed(), "Failed to delete topology node pools")
 
 			wait.ForExactlyNKWOKOperatorNodePools(ctx, testCtx.ControllerClient, map[string]string{"test": "topology-e2e"}, 0)
+			wait.ForZeroKWOKNodes(ctx, testCtx.ControllerClient)
 
+			originalNodeCount := 0
 			for _, nodePool := range originalNodePools {
+				originalNodeCount += int(nodePool.Spec.NodeCount)
 				baseNodePool := nodePool.DeepCopy()
 				baseNodePool.Spec.NodeCount = 0
 				Expect(testCtx.ControllerClient.Patch(ctx, &nodePool, runtimeClient.MergeFrom(baseNodePool))).To(Succeed(), "Failed to restore node pool", "nodePool", nodePool.Name)
 				wait.ForKWOKOperatorNodePool(ctx, testCtx.ControllerClient, nodePool.Name)
 			}
-			wait.ForZeroKWOKNodes(ctx, testCtx.ControllerClient) // Wait until all kwok nodes are deleted
+			wait.ForAtLeastNNodes(ctx, testCtx.ControllerClient, map[string]string{"type": "kwok"}, originalNodeCount)
 		})
 
 		AfterEach(func(ctx context.Context) {
