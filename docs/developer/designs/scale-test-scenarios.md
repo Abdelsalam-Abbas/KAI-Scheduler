@@ -137,12 +137,12 @@ One "inference deployment" = a PodGroup with three sub-groups, PG-level `Require
 
 ### 2. Elastic distributed large job reclaim (`Reclaim` context)
 
-- Victims: 2 elastic PodGroups modeling distributed jobs, each with `numberOfNodes/2` pods × 8 GPU and
+- Victim: 1 elastic PodGroup modeling a distributed job, with `numberOfNodes` pods × 8 GPU and
   `MinMember = pod count/2` (the "1/2x → 1/x" scale-in), in the 0-quota queue. Standalone pods prevent a
   workload controller from replacing expected reclaim victims.
 - Reclaimer: gang job of `numberOfNodes/2` pods × 8 GPU in the quota queue.
-- Assert the reclaimer schedules and each victim retains at least `MinMember` running pods — i.e. it was
-  shrunk, not killed — via `wait.ForAtLeastNPodsScheduled`.
+- Assert the reclaimer schedules and the victim retains exactly `MinMember` running pods — i.e. it was
+  shrunk, not killed — via `waitForElasticVictimState`.
 - Metrics: time to reclaim, surviving victim pods.
 
 ### 3. Hero job reclaim + required topology (`Topology` context)

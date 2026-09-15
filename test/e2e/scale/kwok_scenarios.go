@@ -40,8 +40,8 @@ const (
 	inferenceNodesPerDeployment = (inferencePrefillPods*gpusPerNode + inferenceDecodePods*inferenceDecodeGPUs) / gpusPerNode
 	inferencePodsPerDeployment  = inferencePrefillPods + inferenceDecodePods + inferenceFrontendPods
 
-	// Elastic victims shrink to half their pods instead of being evicted entirely.
-	elasticVictimJobs                 = 2
+	// The elastic victim shrinks to half its pods instead of being evicted entirely.
+	elasticVictimJobs                 = 1
 	elasticReclaimVerificationTimeout = 5 * time.Minute
 
 	// Each mixed-workload queue runs an RL gang worth ~5% of the cluster.
