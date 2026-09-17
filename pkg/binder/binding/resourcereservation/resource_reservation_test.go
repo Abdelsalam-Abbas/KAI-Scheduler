@@ -915,7 +915,7 @@ var _ = Describe("ResourceReservationService", func() {
 			gpuGroup := "test-group"
 			nodeName := "node-test"
 
-			pod, err := rsc.createResourceReservationPod(nodeName, schedulingv1alpha2.FractionalGpuGroup{
+			pod, err := rsc.createResourceReservationPod(nil, nodeName, schedulingv1alpha2.FractionalGpuGroup{
 				ID:                 gpuGroup,
 				ComputeSharingMode: schedulingv1alpha2.GPUComputeSharingModeTimeSlicing,
 			}, podName, resources)
@@ -974,6 +974,7 @@ var _ = Describe("ResourceReservationService", func() {
 			}
 
 			pod, err := rsc.createResourceReservationPod(
+				nil,
 				"node-test",
 				schedulingv1alpha2.FractionalGpuGroup{
 					ID:                 "test-group",
@@ -985,6 +986,39 @@ var _ = Describe("ResourceReservationService", func() {
 			Expect(err).To(BeNil())
 			Expect(pod.Annotations[constants.GpuComputeSharingMode]).To(Equal(
 				string(schedulingv1alpha2.GPUComputeSharingModeSMSharing)))
+		})
+
+		It("should copy tolerations from the source pod", func() {
+			rsc := &service{
+				namespace:           "kai-resource-reservation",
+				appLabelValue:       "kai-reservation",
+				serviceAccountName:  "kai-sa",
+				reservationPodImage: "nvidia/kai-reservation:latest",
+				kubeClient:          fake.NewClientBuilder().WithScheme(testScheme).Build(),
+			}
+			sourcePod := &v1.Pod{
+				Spec: v1.PodSpec{
+					Tolerations: []v1.Toleration{{
+						Key:      "hpc",
+						Operator: v1.TolerationOpEqual,
+						Value:    "true",
+						Effect:   v1.TaintEffectNoExecute,
+					}},
+				},
+			}
+
+			pod, err := rsc.createResourceReservationPod(
+				sourcePod,
+				"node-test",
+				schedulingv1alpha2.FractionalGpuGroup{ID: "test-group"},
+				"reservation-test",
+				v1.ResourceRequirements{},
+			)
+			Expect(err).To(Succeed())
+			Expect(pod.Spec.Tolerations).To(Equal(sourcePod.Spec.Tolerations))
+
+			sourcePod.Spec.Tolerations[0].Value = "changed"
+			Expect(pod.Spec.Tolerations[0].Value).To(Equal("true"))
 		})
 	})
 
@@ -1149,7 +1183,7 @@ var _ = Describe("ResourceReservationService", func() {
 				scalingPodNamespace: scalingPodsNamespace,
 			}
 
-			pod, err := rsc.createGPUReservationPod(context.TODO(), "test-node", schedulingv1alpha2.FractionalGpuGroup{
+			pod, err := rsc.createGPUReservationPod(context.TODO(), nil, "test-node", schedulingv1alpha2.FractionalGpuGroup{
 				ID:                 "test-gpu-group",
 				ComputeSharingMode: schedulingv1alpha2.GPUComputeSharingModeTimeSlicing,
 			})
@@ -1182,7 +1216,7 @@ var _ = Describe("ResourceReservationService", func() {
 				scalingPodNamespace: scalingPodsNamespace,
 			}
 
-			pod, err := rsc.createGPUReservationPod(context.TODO(), "test-node", schedulingv1alpha2.FractionalGpuGroup{
+			pod, err := rsc.createGPUReservationPod(context.TODO(), nil, "test-node", schedulingv1alpha2.FractionalGpuGroup{
 				ID:                 "test-gpu-group",
 				ComputeSharingMode: schedulingv1alpha2.GPUComputeSharingModeTimeSlicing,
 			})
@@ -1227,7 +1261,7 @@ var _ = Describe("ResourceReservationService", func() {
 				scalingPodNamespace: scalingPodsNamespace,
 			}
 
-			pod, err := rsc.createGPUReservationPod(context.TODO(), "test-node", schedulingv1alpha2.FractionalGpuGroup{
+			pod, err := rsc.createGPUReservationPod(context.TODO(), nil, "test-node", schedulingv1alpha2.FractionalGpuGroup{
 				ID:                 "test-gpu-group",
 				ComputeSharingMode: schedulingv1alpha2.GPUComputeSharingModeTimeSlicing,
 			})
@@ -1269,7 +1303,7 @@ var _ = Describe("ResourceReservationService", func() {
 				scalingPodNamespace: scalingPodsNamespace,
 			}
 
-			pod, err := rsc.createGPUReservationPod(context.TODO(), "test-node", schedulingv1alpha2.FractionalGpuGroup{
+			pod, err := rsc.createGPUReservationPod(context.TODO(), nil, "test-node", schedulingv1alpha2.FractionalGpuGroup{
 				ID:                 "test-gpu-group",
 				ComputeSharingMode: schedulingv1alpha2.GPUComputeSharingModeTimeSlicing,
 			})
@@ -1591,6 +1625,7 @@ var _ = Describe("Race condition: reservation pod deleted during concurrent bind
 				nil, podSecCtx, containerSecCtx)
 
 			pod, err := svc.createResourceReservationPod(
+				nil,
 				nodeName, schedulingv1alpha2.FractionalGpuGroup{
 					ID:                 gpuGroup,
 					ComputeSharingMode: schedulingv1alpha2.GPUComputeSharingModeTimeSlicing,
@@ -1615,6 +1650,7 @@ var _ = Describe("Race condition: reservation pod deleted during concurrent bind
 				nil, nil, nil)
 
 			pod, err := svc.createResourceReservationPod(
+				nil,
 				nodeName, schedulingv1alpha2.FractionalGpuGroup{
 					ID:                 gpuGroup,
 					ComputeSharingMode: schedulingv1alpha2.GPUComputeSharingModeTimeSlicing,
