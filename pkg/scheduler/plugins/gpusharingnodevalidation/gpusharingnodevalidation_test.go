@@ -54,6 +54,20 @@ func TestCheckNvFractionalGPUReadyCondition(t *testing.T) {
 				"node is not ready for fractional GPU scheduling. Condition gpu-sharing.nvidia.com/Ready is False. Reason: DevicePluginNotReady. Message: device plugin is not ready"),
 		},
 		{
+			name: "shared gpu task in NvFractions mode with false ready condition and no reason fails without condition-not-found reason",
+			task: &pod_info.PodInfo{
+				Name:                "shared-pod",
+				Namespace:           "ns",
+				ResourceRequestType: pod_info.RequestTypeFraction,
+			},
+			mode: kaiv1common.GpuSharingModeNvFractions,
+			conditions: []v1.NodeCondition{
+				newFractionalGPUReadyCondition(v1.ConditionFalse, ""),
+			},
+			expectedErr: common_info.NewFitError("shared-pod", "ns", "node-a",
+				"node is not ready for fractional GPU scheduling. Condition gpu-sharing.nvidia.com/Ready is False. Reason: . Message: "),
+		},
+		{
 			name: "shared gpu task in NvFractions mode with missing ready condition fails",
 			task: &pod_info.PodInfo{
 				Name:                "shared-pod",

@@ -54,9 +54,7 @@ func checkNvFractionalGPUReadyCondition(task *pod_info.PodInfo, node *node_info.
 			return nil
 		}
 		conditionStatus = condition.Status
-		if condition.Reason != "" {
-			conditionReason = condition.Reason
-		}
+		conditionReason = condition.Reason
 		conditionMessage = condition.Message
 		break
 	}
