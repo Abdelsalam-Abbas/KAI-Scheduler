@@ -26,7 +26,7 @@ NvFractions also adds these capabilities:
 For installation, runtime configuration, and the complete annotation
 reference, see [GPU Sharing](../README.md).
 
-## Before you begin
+## Prerequisites
 
 An administrator must install KAI in `NvFractions` mode and make the
 GPU-sharing operator ready before submitting workloads. In particular, the
@@ -71,7 +71,7 @@ the same fractional GPU group share compute. KAI supports these values:
 
 | Mode | How workloads run | Best fit |
 | --- | --- | --- |
-| `time-slicing` | Workloads take turns using the GPU. Unused time is available to other workloads. This is the default. | Bursty development, notebooks, and throughput-oriented or latency-tolerant inference. |
+| `time-slicing` | Workloads take turns using the whole GPU compute. Unused time is available to other workloads. This is the default. | Bursty development, notebooks, and throughput-oriented or latency-tolerant inference. |
 | `sm-sharing` | Workloads run concurrently and share the GPU streaming multiprocessors (SMs). | Steady or latency-sensitive inference, and coordinated multi-GPU or multi-Pod workloads. Requires MPS. |
 
 Set `kai.scheduler/gpu-compute-sharing-mode` in the NvFractions Pod manifest.
@@ -82,8 +82,8 @@ shows the annotation in context.
 
 Two pods requiring different gpu compute mode cannot share the same device.
 Because of this, KAI keeps workloads that use different compute-sharing modes
-in separate fractional GPU groups. A pod that requests `sm-sharing` is therefore not
-placed with a `time-slicing` pod, and the reverse is also true.
+in separate fractional GPU groups. **A pod that requests `sm-sharing` is therefore not
+placed with a `time-slicing` pod, and the reverse is also true.**
 
 ### Choosing the right compute mode
 
