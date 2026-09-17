@@ -156,6 +156,23 @@ func TestValidateDeviceAnnotationAuthorization(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("allows init container annotation by binder", func(t *testing.T) {
+		initContainerName := "init-container"
+		pod := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+				nvFractionsRequestKey(initContainerName):                                 "1Gi",
+				resources.CalcGpuVisibleDevicesAnnotationForContainer(initContainerName): "GPU-0",
+			}},
+			Spec: v1.PodSpec{
+				InitContainers: []v1.Container{{Name: initContainerName}},
+				Containers:     []v1.Container{{Name: "container-0"}},
+			},
+		}
+
+		err := New(binderUsername).Validate(contextWithUser(binderUsername), nil, pod)
+		assert.NoError(t, err)
+	})
+
 	t.Run("allows unchanged device annotation by non-binder", func(t *testing.T) {
 		oldPod := podWithDeviceAnnotation("GPU-0")
 		newPod := podWithDeviceAnnotation("GPU-0")

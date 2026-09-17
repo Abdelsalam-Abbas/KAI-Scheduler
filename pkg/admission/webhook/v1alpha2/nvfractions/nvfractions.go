@@ -86,7 +86,7 @@ func (p *NvFractions) validateDeviceAnnotation(ctx context.Context, oldPod, pod 
 		if !isNvFractionsDeviceAnnotation(annotationKey) {
 			continue
 		}
-		if err := validateDeviceAnnotationContainerExists(pod, annotationKey); err != nil {
+		if err := validateDeviceAnnotationContainerExists(pod); err != nil {
 			return err
 		}
 
@@ -152,10 +152,17 @@ func isNvFractionsDeviceAnnotation(annotationKey string) bool {
 		strings.HasSuffix(annotationKey, constants.NvFractionsVisibleDevicesSuffix)
 }
 
-func validateDeviceAnnotationContainerExists(pod *v1.Pod, annotationKey string) error {
-	containerName := strings.TrimPrefix(annotationKey, constants.NvFractionsAnnotationPrefix)
-	containerName = strings.TrimSuffix(containerName, constants.NvFractionsVisibleDevicesSuffix)
+func validateDeviceAnnotationContainerExists(pod *v1.Pod) error {
+	containerName, _, err := resources.GetNvFractionsContainerName(pod.Annotations)
+	if err != nil {
+		return err
+	}
 	for _, container := range pod.Spec.Containers {
+		if container.Name == containerName {
+			return nil
+		}
+	}
+	for _, container := range pod.Spec.InitContainers {
 		if container.Name == containerName {
 			return nil
 		}
