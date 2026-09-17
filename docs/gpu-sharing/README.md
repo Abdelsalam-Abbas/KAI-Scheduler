@@ -71,6 +71,12 @@ helm upgrade -i kai-scheduler oci://ghcr.io/kai-scheduler/kai-scheduler/kai-sche
 
 Setting `global.nvFractions.set=true` installs the `gpu-sharing` Helm dependency from `oci://ghcr.io/kai-scheduler/gpu-sharing` and renders KAI with `global.gpuSharingMode=NvFractions`.
 
+When managing the `gpu-sharing` operator separately, install it before KAI.
+The KAI operator registers its `GpuSharingConfig` watch only when the CRD exists
+at startup. If `gpu-sharing` is installed after KAI, restart the KAI operator so
+it discovers the CRD; otherwise, `GpuSharingConfig` changes do not trigger KAI
+reconciliation.
+
 If the `gpu-sharing` operator is already installed and managed separately, do not install the subchart from KAI. Set `global.gpuSharingMode=NvFractions` and keep `global.nvFractions.set=false`:
 
 ```bash
